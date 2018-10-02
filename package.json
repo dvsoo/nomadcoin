@@ -15,5 +15,8 @@
   "bugs": {
     "url": "https://github.com/dvsoo/nomadcoin/issues"
   },
-  "homepage": "https://github.com/dvsoo/nomadcoin#readme"
+  "homepage": "https://github.com/dvsoo/nomadcoin#readme",
+  "dependencies": {
+    "crypto-js": "^3.1.9-1"
+  }
 }
