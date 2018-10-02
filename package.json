@@ -1,0 +1,19 @@
+{
+  "name": "nomadcoin",
+  "version": "1.0.0",
+  "description": "Nomadcoin, the most awesome coin made in Node Js",
+  "main": "src/server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvsoo/nomadcoin.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dvsoo/nomadcoin/issues"
+  },
+  "homepage": "https://github.com/dvsoo/nomadcoin#readme"
+}
