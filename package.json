@@ -4,7 +4,7 @@
   "description": "Nomadcoin, the most awesome coin made in Node Js",
   "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon src/server.js"
   },
   "repository": {
     "type": "git",
@@ -17,6 +17,10 @@
   },
   "homepage": "https://github.com/dvsoo/nomadcoin#readme",
   "dependencies": {
-    "crypto-js": "^3.1.9-1"
+    "body-parser": "^1.18.3",
+    "crypto-js": "^3.1.9-1",
+    "express": "^4.16.3",
+    "morgan": "^1.9.1",
+    "ws": "^6.0.0"
   }
 }
