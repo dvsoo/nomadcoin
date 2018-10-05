@@ -1,6 +1,9 @@
-const WebSockets = require("ws");
+const WebSockets = require("ws"),
+  Blockchain = require("./blockchain");
 ///socket 서버 사이의 커넥션 모두 다 서버니까 서버 간의 대화
 // peer array => socket
+
+const {} = Blockchain;
 
 const sockets = [];
 
@@ -15,13 +18,30 @@ const startP2PServer = server => {
   const wsServer = new WebSockets.Server({ server });
   ///누군가 나의 서버에 접속한다면, 내 서버에 접속된 웹소켓을
   wsServer.on("connection", ws => {
-    console.log(`Hello Socket`);
+    ////여기서 p2p서버에게 무엇을 해야하는 지 알려주기
+    initSocketConnection(ws);
   });
   console.log("Nomadcoin P2P Server running");
 };
 
 const initSocketConnection = socket => {
   sockets.push(socket);
+  handleSocketError(socket);
+  ///특정메세지를 보내면 반응하도록
+  socket.on("message", data => {
+    console.log(data);
+  });
+  setTimeout(() => socket.send("welcome"), 5000);
+};
+
+const handleSocketError = ws => {
+  ///죽은 socket를 socket array에서 제거하는 함수
+  const closeSocketConnection = ws => {
+    ws.close();
+    sockets.splice(socket.indexOf(ws), 1);
+  };
+  ws.on("close", () => closeSocketConnection(ws));
+  ws.on("error", () => closeSocketConnection(ws));
 };
 
 ////newPeer: URL 소켓연결을
