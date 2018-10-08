@@ -1,12 +1,20 @@
-const CryptoJS = require("crypto-js");
+const CryptoJS = require("crypto-js"),
+  hexToBinary = require("hex-to-binary");
+
+////block 생성 초
+const BLOCK_GENERATION_INTERVAL = 10;
+////block 난이도 조정 블록갯수 10개 블록마다 난이도 조절
+const DIFFICULTY_ADJUSTMENT_INTERVAL = 10;
 
 class Block {
-  constructor(index, hash, previousHash, timestamp, data) {
+  constructor(index, hash, previousHash, timestamp, data, difficulty, nonce) {
     this.index = index;
     this.hash = hash;
     this.previousHash = previousHash;
     this.timestamp = timestamp;
     this.data = data;
+    this.difficulty = difficulty;
+    this.nonce = nonce;
   }
 }
 
@@ -15,12 +23,14 @@ const genesisBlock = new Block(
   "2C4CEB90344F20CC4C77D626247AED3ED530C1AEE3E6E85AD494498B17414CAC",
   null,
   1520312194926,
-  "This is the genesis!!"
+  "This is the genesis!!",
+  0,
+  0
 );
 
 let blockchain = [genesisBlock];
 
-const getNewestBlock = () => blockchain[blockchain.length - 1];
+const getNewesBlock = () => blockchain[blockchain.length - 1];
 ////{}가 없는 ES6 문법은 모든 것들이 디폴트로 리턴이 된다.
 
 const getTimestamp = () => new Date().getTime() / 1000;
@@ -31,37 +41,108 @@ const getTimestamp = () => new Date().getTime() / 1000;
 
 const getBlockchain = () => blockchain;
 
-const createHash = (index, previousHash, timestamp, data) =>
+const createHash = (index, previousHash, timestamp, data, difficulty, nonce) =>
   CryptoJS.SHA256(
-    index + previousHash + timestamp + JSON.stringify(data)
+    index + previousHash + timestamp + JSON.stringify(data) + difficulty + nonce
   ).toString();
 ///이런 crypto를 만들고 나면 인풋을 줘야한다. https://passwordsgenerator.net/sha256-hash-generator/
 /// data에 string이 아닌 다른 값이 들어갈 수도 있으므로 JSON.stringify를 통해서 string으로 만들어준다.
 
 //// hash값 만들기
 const createNewBlock = data => {
-  const previousBlock = getNewestBlock();
+  const previousBlock = getNewesBlock();
   const newBlockIndex = previousBlock.index + 1;
   const newTimestamp = getTimestamp();
-  const newHash = createHash(
+  const difficulty = findDifficulty();
+  const newBlock = findBlock(
     newBlockIndex,
     previousBlock.hash,
     newTimestamp,
-    data
-  );
-  const newBlock = new Block(
-    newBlockIndex,
-    newHash,
-    previousBlock.hash,
-    newTimestamp,
-    data
+    data,
+    difficulty
   );
   addBlockToChain(newBlock);
+  require("./p2p").broadcastNewBlock();
   return newBlock;
 };
 
+const findDifficulty = () => {
+  const newestBlock = getNewesBlock();
+  if (
+    newestBlock.index & (DIFFICULTY_ADJUSTMENT_INTERVAL === 0) &&
+    newestBlock.index !== 0
+  ) {
+    return calculateNewDifficulty(newestBlock, getBlockchain());
+    // calculate new difficulty
+  } else {
+    return newestBlock.difficulty;
+  }
+};
+
+const calculateNewDifficulty = (newestBlock, blockchain) => {
+  console.log("adsfafs");
+  ///최근 블록의 10개 전의 난이도
+  const lastCalculateBlock =
+    blockchain[blockchain.length - DIFFICULTY_ADJUSTMENT_INTERVAL];
+  const timeExpected =
+    BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL;
+  const timeTaken = newestBlock.timestamp - lastCalculateBlock.timestamp;
+  if (timeTaken < timeExpected / 2) {
+    return lastCalculateBlock.difficulty + 1;
+  } else if (timeTaken > timeExpected * 2) {
+    return lastCalculateBlock.difficulty - 1;
+  } else {
+    return lastCalculateBlock.difficulty;
+  }
+};
+
+const findBlock = (index, previousHash, timestamp, data, difficulty) => {
+  let nonce = 0;
+  while (true) {
+    console.log("Current nonce", nonce);
+    const hash = createHash(
+      index,
+      previousHash,
+      timestamp,
+      data,
+      difficulty,
+      nonce
+    );
+
+    ///to do: check amount of zeros (hasMatchesDifficult?)
+    //hash 와 nonce가 맞는지를 체크하는 함수
+    if (hashMatchesDifficulty(hash, difficulty)) {
+      return new Block(
+        index,
+        hash,
+        previousHash,
+        timestamp,
+        data,
+        difficulty,
+        nonce
+      );
+    }
+    nonce++;
+  }
+};
+
+const hashMatchesDifficulty = (hash, difficulty) => {
+  ///1. 해시를 2진수로 변경
+  const hashInBinary = hexToBinary(hash);
+  const requireZeros = "0".repeat(difficulty);
+  console.log("Trying difficulty:", difficulty, "with hash:", hashInBinary);
+  return hashInBinary.startsWith(requireZeros);
+};
+
 const getBLockHash = block =>
-  createHash(block.index, block.previousHash, block.timestamp, block.data);
+  createHash(
+    block.index,
+    block.previousHash,
+    block.timestamp,
+    block.data,
+    block.difficulty,
+    block.nonce
+  );
 
 ////Block Contents 검증 과정
 const isBlockValid = (candidateBlock, latestBlock) => {
@@ -137,7 +218,7 @@ const replaceChain = candidateChain => {
 
 const addBlockToChain = candidateBlock => {
   ///최근블록은 우리 함수의 마지막 블록을 뜻한다.
-  if (isBlockValid(candidateBlock, getNewestBlock())) {
+  if (isBlockValid(candidateBlock, getNewesBlock())) {
     blockchain.push(candidateBlock);
     return true;
   } else {
@@ -148,7 +229,7 @@ const addBlockToChain = candidateBlock => {
 module.exports = {
   getBlockchain,
   createNewBlock,
-  getNewestBlock,
+  getNewesBlock,
   isBlockStructureValid,
   replaceChain,
   addBlockToChain
