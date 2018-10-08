@@ -20,7 +20,7 @@ const genesisBlock = new Block(
 
 let blockchain = [genesisBlock];
 
-const getLastBlock = () => blockchain[blockchain.length - 1];
+const getNewestBlock = () => blockchain[blockchain.length - 1];
 ////{}가 없는 ES6 문법은 모든 것들이 디폴트로 리턴이 된다.
 
 const getTimestamp = () => new Date().getTime() / 1000;
@@ -40,7 +40,7 @@ const createHash = (index, previousHash, timestamp, data) =>
 
 //// hash값 만들기
 const createNewBlock = data => {
-  const previousBlock = getLastBlock();
+  const previousBlock = getNewestBlock();
   const newBlockIndex = previousBlock.index + 1;
   const newTimestamp = getTimestamp();
   const newHash = createHash(
@@ -64,8 +64,8 @@ const getBLockHash = block =>
   createHash(block.index, block.previousHash, block.timestamp, block.data);
 
 ////Block Contents 검증 과정
-const isNewBlockValid = (candidateBlock, latestBlock) => {
-  if (!isNewStructureValid(candidateBlock)) {
+const isBlockValid = (candidateBlock, latestBlock) => {
+  if (!isBlockStructureValid(candidateBlock)) {
     console.log("The candidate block structure is not valid");
     return false;
   } else if (latestBlock.index + 1 !== candidateBlock.index) {
@@ -85,7 +85,7 @@ const isNewBlockValid = (candidateBlock, latestBlock) => {
 };
 
 ////Block Structure 검증 과정
-const isNewStructureValid = block => {
+const isBlockStructureValid = block => {
   return (
     typeof block.index === "number" &&
     typeof block.hash === "string" &&
@@ -114,7 +114,7 @@ const isChainValid = candidateChain => {
 
   ////1인 이유는 제네시스 블록을 검증하기 싫어서. why? 제네시스는 이전해시값이 없기 때문에
   for (let i = 1; i < candidateChain.length; i++) {
-    if (!isNewBlockValid(candidateChain[i], candidateChain[i - 1])) {
+    if (!isBlockValid(candidateChain[i], candidateChain[i - 1])) {
       return false;
     }
     return true;
@@ -137,7 +137,7 @@ const replaceChain = candidateChain => {
 
 const addBlockToChain = candidateBlock => {
   ///최근블록은 우리 함수의 마지막 블록을 뜻한다.
-  if (isNewBlockValid(candidateBlock, getLastBlock())) {
+  if (isBlockValid(candidateBlock, getNewestBlock())) {
     blockchain.push(candidateBlock);
     return true;
   } else {
@@ -148,5 +148,8 @@ const addBlockToChain = candidateBlock => {
 module.exports = {
   getBlockchain,
   createNewBlock,
-  getLastBlock
+  getNewestBlock,
+  isBlockStructureValid,
+  replaceChain,
+  addBlockToChain
 };

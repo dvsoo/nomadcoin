@@ -3,9 +3,39 @@ const WebSockets = require("ws"),
 ///socket 서버 사이의 커넥션 모두 다 서버니까 서버 간의 대화
 // peer array => socket
 
-const {} = Blockchain;
+const { getNewestBlock, isBlockStructureValid, replaceChain } = Blockchain;
+//// 1. 가장 최근 블록을 요청하고
+//// 2. 모든 블록체인을 요청.(뒤쳐지면 블록체인을 교체하는 상황이 있을 수도 있기 때문에)
+//// 3. 블록 가지고 오기.
 
 const sockets = [];
+
+///Message Type
+const GET_LATEST = "GET_LATEST";
+const GET_ALL = "GET_ALL";
+const BLOCKCHAIN_RESPONSE = "BLOCKCHAIN_RESPONSE";
+
+////Message Creators
+const getLatest = () => {
+  return {
+    type: GET_LATEST,
+    data: null
+  };
+};
+
+const getAll = () => {
+  return {
+    type: "GET_ALL",
+    data: null
+  };
+};
+
+const blockchainResponse = data => {
+  return {
+    type: BLOCKCHAIN_RESPONSE,
+    data: data
+  };
+};
 
 const getSockets = () => sockets;
 
@@ -24,15 +54,89 @@ const startP2PServer = server => {
   console.log("Nomadcoin P2P Server running");
 };
 
-const initSocketConnection = socket => {
-  sockets.push(socket);
-  handleSocketError(socket);
+const initSocketConnection = ws => {
+  sockets.push(ws);
+  handleSocketMessages(ws);
+  handleSocketError(ws);
+  sendMessage(ws, getLatest());
   ///특정메세지를 보내면 반응하도록
-  socket.on("message", data => {
-    console.log(data);
-  });
-  setTimeout(() => socket.send("welcome"), 5000);
+  // ws.on("message", data => {
+  //   console.log(data);
+  // });
+  // setTimeout(() => socket.send("welcome"), 5000);
 };
+
+const parseData = data => {
+  ////try-catch error
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    console.log(e);
+    return null;
+  }
+};
+
+const handleSocketMessages = ws => {
+  ////메세지를 얻었을 때, 어떻게 할 지 알려주는 함수
+  ws.on("message", data => {
+    const message = parseData(data);
+    if (message === null) {
+      return;
+    }
+    console.log(message);
+    switch (message.type) {
+      case GET_LATEST:
+        sendMessage(ws, responseLatest());
+        break;
+      case GET_ALL:
+        sendMessage(ws, responseAll());
+        break;
+      case BLOCKCHAIN_RESPONSE:
+        const recivedBlocks = message.data;
+        if (recivedBlocks === null) {
+          break;
+        }
+        handleBlockchainResponse(recivedBlocks);
+        break;
+    }
+  });
+};
+
+const handleBlockchainResponse = recivedBlocks => {
+  if (recivedBlocks.length === 0) {
+    console.log("Recevied block have a length of 0");
+    return;
+  }
+  const latesBlockRecevied = recivedBlocks[recivedBlocks.length - 1];
+  if (!isBlockStructureValid(latesBlockRecevied)) {
+    console.log("The Block Structure of the block received is not valid");
+  }
+  ///현재가지고 있는 블록
+  const newestBlock = getNewestBlock();
+  ///현재, 서버에 있는 블록체인의 index가 우리가 가지고 있는 블록체인의 index 보다 크다면,
+  if (latesBlockRecevied.index > newestBlock.index) {
+    ////check 10번 블록의 이전 해쉬가 9번 블록의 해쉬인지
+    ///이 경우에는, 블록이 딱 1개 전에 있다는 뜻이므로, 블록을 하나만 추가해주면 된다.
+    if (newestBlock.hash === latesBlockRecevied.previousHash) {
+      addBlockToChain(latesBlockRecevied);
+    } else if (recivedBlocks.length === 1) {
+      ///to do, get all the blocks, We are waay behind => all blockchain 을 가지고 오는 것
+      /// 모든 사람들한테 블록체인을 달라고 메세지를 보내야한다.
+      sendMessageToAll(getAll());
+    } else {
+      replaceChain(recivedBlocks);
+    }
+  }
+};
+
+const sendMessage = (ws, message) => ws.send(JSON.stringify(message));
+
+const sendMessageToAll = message =>
+  scokets.forEach(ws => sendMessage(ws, message));
+
+const responseLatest = () => blockchainResponse(getNewestBlock());
+
+const responseAll = () => blockchainResponse(getBlockchain());
 
 const handleSocketError = ws => {
   ///죽은 socket를 socket array에서 제거하는 함수
