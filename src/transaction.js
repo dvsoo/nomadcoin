@@ -1,5 +1,6 @@
 const CryptoJS = require("crypto-js"),
   utils = require("./utils"),
+  _ = require("lodash"),
   elliptic = require("elliptic");
 
 ///initialize
@@ -30,7 +31,7 @@ class Transaction {
 }
 
 ////UTXO
-class UnxOut {
+class UTxOut {
   constructor(txOutId, txOutIndex, address, amount) {
     this.txOutId = txOutId;
     this.txOutIndex = txOutIndex;
@@ -39,8 +40,6 @@ class UnxOut {
   }
 }
 
-let uTxOuts = [];
-
 ////transaction ID 얻는 방법: transaction input and output 함께 hash
 
 const getTxId = tx => {
@@ -48,7 +47,7 @@ const getTxId = tx => {
   ///map: array로 만든다.
   //txIn은 txOutId 와 txOutIndex가 들어가 있다.
   const txInContent = tx.txIns
-    .map(txIn => txIn.uTxOutId + txIn.txOutIndex)
+    .map(txIn => txIn.txOutId + txIn.txOutIndex)
     .reduce((a, b) => a + b, "");
 
   ///트랜잭션 아웃풋 작업
@@ -66,35 +65,47 @@ const findUTxOut = (txOutId, txOutIndex, uTxOutList) => {
 };
 
 ///Input 에 사인, 블록체인에게 유효하다고 검증해 주는 것.
-const signTxIn = (tx, txInIndex, privateKey, uTxO) => {
+const signTxIn = (tx, txInIndex, privateKey, uTxOutList) => {
   ///우리가 원하는 input을 찾아야 된다.
   const txIn = tx.txIns[txInIndex];
   const dataToSign = tx.id;
   //// 돈이 있는 지 체크한다.  To do: Find Tx 사용되지 않은 아웃풋
-  const referencedUTxOut = findUTxOut(txIn.txOutId, tx.txOutIndex, uTxOuts);
+  const referencedUTxOut = findUTxOut(txIn.txOutId, tx.txOutIndex, uTxOutList);
   if (referencedUTxOut === null) {
+    console.log("Couldn't find the referenced uTxOut, not signing");
     return;
   }
-
+  const referenceAddress = referencedUTxOut.address;
+  ///트랜잭션 인풋 주소가 지갑에서 얻은 주소와 같은지 체크
+  if (getPublickKey(privateKey) !== referenceAddress) {
+    return false;
+  }
   const key = ec.keyFromPrivate(privateKey, "hex");
   const signature = utils.toHexString(key.sign(dataToSign).toDER());
   return signature;
 };
 
-const updateUxOuts = (newTxs, uTxOutList) => {
+const getPublickKey = privateKey => {
+  return ec
+    .keyFromPrivate(privateKey, "hex")
+    .getPublic()
+    .encode("hex");
+};
+
+const updateUTxOuts = (newTxs, uTxOutList) => {
   ///트랜잭션응ㄴ 가끔 new transaction을 만든다.
   const newUTxOuts = newTxs
     .map(tx => {
-      tx.txOuts.map((txOut, index) => {
-        new UTxO(tx.id, index, txOut.address, txOut.amount);
-      });
+      return tx.txOuts.map(
+        (txOut, index) => new UTxOut(tx.id, index, txOut.address, txOut.amount)
+      );
     })
-    .reduce((a, b) => a.contact(b), []);
+    .reduce((a, b) => a.concat(b), []);
 
   const spentTxOuts = newTxs
     .map(tx => tx.txIns)
-    .reduce((a, b) => a.contact(b), [])
-    .map(txIn => new UTxO(txIn.txOutId, txIn.txOutIndex, "", 0));
+    .reduce((a, b) => a.concat(b), [])
+    .map(txIn => new UTxOut(txIn.txOutId, txIn.txOutIndex, "", 0));
 
   const resultingUTxOuts = uTxOutList
     .filter(uTxO => !findUTxOut(uTxO.txOutId, uTxO.txOutIndex, spentTxOuts))
@@ -180,7 +191,7 @@ const isTxStructureValid = tx => {
 ////transcation 의 데이터
 ///mother function
 
-const validateTxIn = (txIN, tx, uTxOutList) => {
+const validateTxIn = (txIn, tx, uTxOutList) => {
   const wantedTxOut = uTxOutList.find(
     uTxO => uTxO.txOutId === txIn.txOutId && uTxO.txOutIndex === txIn.txOutIndex
   );
@@ -246,4 +257,72 @@ const validateCoinbaseTx = (tx, blockIndex) => {
   } else {
     return true;
   }
+};
+
+////채굴자 보상 => 다른 종류의 트랜잭션 => coinbase 1 input 1 output
+const createCoinbaseTx = (address, blockIndex) => {
+  const tx = new Transaction();
+  const txIn = new TxIn();
+  txIn.signature = "";
+  txIn.txOutId = "";
+  txIn.txOutIndex = blockIndex;
+  tx.txIns = [txIn];
+  tx.txOuts = [new TxOut(address, COINBASE_AMOUNT)];
+  tx.id = getTxId(tx);
+  return tx;
+};
+
+////프로세스 연결
+const hasDuplicates = txIns => {
+  const groups = _.countBy(txIns, txIn => txIn.txOutId + txIn.txOutIndex);
+
+  return _(groups)
+    .map(value => {
+      if (value > 1) {
+        console.log("Found dulicated txIn");
+        return true;
+      } else {
+        return false;
+      }
+    })
+    .includes(true);
+};
+
+const validateBlockTxs = (txs, uTxOutList, blockIndex) => {
+  const coinbaseTx = txs[0];
+  if (!validateCoinbaseTx(coinbaseTx, blockIndex)) {
+    console.log("Coinbase Tx is invalid");
+  }
+  const txIns = _(txs)
+    .map(tx => tx.txIns)
+    .flatten()
+    .value();
+
+  if (hasDuplicates(txIns)) {
+    console.llog("Found duplicated txIns");
+    return false;
+  }
+
+  const nonCoinbaseTxs = txs.slice(1);
+
+  return nonCoinbaseTxs
+    .map(tx => validateTx(tx, uTxOutList))
+    .reduce((a, b) => a + b, true);
+};
+const processTxs = (txs, uTxOutList, blockIndex) => {
+  if (!validateBlockTxs(txs, uTxOutList, blockIndex)) {
+    return null;
+  }
+  return updateUTxOuts(txs, uTxOutList);
+};
+
+module.exports = {
+  getPublickKey,
+  getTxId,
+  signTxIn,
+  TxIn,
+  Transaction,
+  TxOut,
+  createCoinbaseTx,
+  processTxs
 };
