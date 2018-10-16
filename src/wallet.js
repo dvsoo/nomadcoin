@@ -2,10 +2,10 @@ const elliptic = require("elliptic"),
   path = require("path"),
   fs = require("fs"),
   _ = require("lodash"),
-  Transactions = require("./transaction");
+  Transactions = require("./transactions");
 
 const {
-  getPublickKey,
+  getPublicKey,
   getTxId,
   signTxIn,
   TxIn,
@@ -23,7 +23,6 @@ const generatePrivateKey = () => {
   return privateKey.toString(16);
 };
 
-///지갑에서 프라이빗키를 가지고 온다 => 이 파일을 가지고 온다.
 const getPrivateFromWallet = () => {
   const buffer = fs.readFileSync(privateKeyLocation, "utf8");
   return buffer.toString();
@@ -35,19 +34,14 @@ const getPublicFromWallet = () => {
   return key.getPublic().encode("hex");
 };
 
-////address를 매칭하여 전체 아웃풋을 찾는다.
 const getBalance = (address, uTxOuts) => {
   return _(uTxOuts)
     .filter(uTxO => uTxO.address === address)
     .map(uTxO => uTxO.amount)
     .sum();
-  /////uTxOuts에서 address와 동일한 사용하지 않은 아웃풋의 주소를 uTxO로 담아
-  //// 배열로 올려놓고, uTxO를 총량으로 넣는다. 그걸 다 합친다.
 };
 
 const initWallet = () => {
-  ///만약 프라이빗키가 존재한다면, 아무것도 안하고
-  ///존재하지 않는다면 만든다.
   if (fs.existsSync(privateKeyLocation)) {
     return;
   }
@@ -58,67 +52,90 @@ const initWallet = () => {
 
 const findAmountInUTxOuts = (amountNeeded, myUTxOuts) => {
   let currentAmount = 0;
-  const includeUTxOuts = [];
+  const includedUTxOuts = [];
   for (const myUTxOut of myUTxOuts) {
-    includeUTxOuts.push(myUTxOut);
-    ////현재 내가 가지고 있는 수량
-    currentAmount = currentAmount + myUTxOut.amount;
+    includedUTxOuts.push(myUTxOut);
+    currentAmount = currentAmount = myUTxOut.amount;
     if (currentAmount >= amountNeeded) {
       const leftOverAmount = currentAmount - amountNeeded;
-      return { includeUTxOuts, leftOverAmount };
+      return { includedUTxOuts, leftOverAmount };
     }
   }
-  console.log("Not enough founds");
+  throw Error("Not enough founds");
   return false;
 };
 
-///amount 내가 남에게 주는 양
-const createTxOut = (receiverAddress, myAddress, amount, leftOverAmount) => {
+const createTxOuts = (receiverAddress, myAddress, amount, leftOverAmount) => {
   const receiverTxOut = new TxOut(receiverAddress, amount);
   if (leftOverAmount === 0) {
     return [receiverTxOut];
   } else {
     const leftOverTxOut = new TxOut(myAddress, leftOverAmount);
-    return [receiverTxOut, leftOverAmount];
+    return [receiverTxOut, leftOverTxOut];
   }
 };
 
-const createTx = (receiverAddress, amount, privateKey, uTxOutList) => {
-  ///내 주소 얻기
-  const myAddress = getPublickKey(privateKey);
-  ///내 소유의 UTXO 찾기
+const filterUTxOutsFromMempool = (uTxOutList, mempool) => {
+  const txIns = _(mempool)
+    .map(tx => tx.txIns)
+    .flatten()
+    .value();
+
+  const removeables = [];
+
+  for (const uTxOut of uTxOutList) {
+    const txIn = _.find(
+      txIns,
+      txIn =>
+        txIn.txOutIndex === uTxOut.txOutIndex && txIn.txOutId === uTxOut.txOutId
+    );
+    if (txIn !== undefined) {
+      removeables.push(uTxOut);
+    }
+  }
+
+  return _.without(uTxOutList, ...removeables);
+};
+
+const createTx = (receiverAddress, amount, privateKey, uTxOutList, mempool) => {
+  const myAddress = getPublicKey(privateKey);
   const myUTxOuts = uTxOutList.filter(uTxO => uTxO.address === myAddress);
 
-  const { includeUTxOuts, leftOverAmount } = findAmountInUTxOuts(
+  const filteredUTxOuts = filterUTxOutsFromMempool(myUTxOuts, mempool);
+
+  const { includedUTxOuts, leftOverAmount } = findAmountInUTxOuts(
     amount,
-    myUTxOuts
+    filteredUTxOuts
   );
 
-  ///UTXO를 가져다가 인풋으로 넣기 이해안된다... ㅠ #55
   const toUnsignedTxIn = uTxOut => {
-    const txIn = new txIn();
+    const txIn = new TxIn();
     txIn.txOutId = uTxOut.txOutId;
     txIn.txOutIndex = uTxOut.txOutIndex;
+    return txIn;
   };
 
-  const unsignedTxIns = includeUTxOuts.map(toUnsignedTxIn);
+  const unsignedTxIns = includedUTxOuts.map(toUnsignedTxIn);
 
   const tx = new Transaction();
 
   tx.txIns = unsignedTxIns;
-  tx.txOuts = createTxOut(receiverAddress, myAddress, amount, leftOverAmount);
-  ///transaction ID 얻기
+  tx.txOuts = createTxOuts(receiverAddress, myAddress, amount, leftOverAmount);
+
   tx.id = getTxId(tx);
 
   tx.txIns = tx.txIns.map((txIn, index) => {
     txIn.signature = signTxIn(tx, index, privateKey, uTxOutList);
     return txIn;
   });
+
   return tx;
 };
 
 module.exports = {
   initWallet,
   getBalance,
-  getPublicFromWallet
+  getPublicFromWallet,
+  createTx,
+  getPrivateFromWallet
 };

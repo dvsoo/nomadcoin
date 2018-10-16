@@ -1,11 +1,20 @@
 const CryptoJS = require("crypto-js"),
+  _ = require("lodash"),
   Wallet = require("./wallet"),
+  Mempool = require("./mempool"),
   hexToBinary = require("hex-to-binary"),
-  Transactions = require("./transaction");
+  Transactions = require("./transactions");
 
-const { getBalance, getPublicFromWallet } = Wallet;
+const {
+  getBalance,
+  getPublicFromWallet,
+  createTx,
+  getPrivateFromWallet
+} = Wallet;
 
 const { createCoinbaseTx, processTxs } = Transactions;
+
+const { addToMemPool, getMempool, updateMempool } = Mempool;
 
 const BLOCK_GENERATION_INTERVAL = 10;
 const DIFFICULTY_ADJUSMENT_INTERVAL = 10;
@@ -22,19 +31,37 @@ class Block {
   }
 }
 
+const genesisTx = {
+  txIns: [
+    {
+      signature: "",
+      txOutId: "",
+      txOutIndex: 0
+    }
+  ],
+  txOuts: [
+    {
+      address:
+        "0457962943328c9080f7bc115d185185eaf0ff06902c8a004ad480fa10874728a68766bf5010cfb49a77b5c438b904cea696ed73ac9ee16cfdbc33e44264e0707e",
+      amount: 50
+    }
+  ],
+  id: "6f26a62effa9cf34ce175438f1fc515321a1c12cd6e03b8973b5288f93e23823"
+};
+
 const genesisBlock = new Block(
   0,
-  "2C4CEB90344F20CC4C77D626247AED3ED530C1AEE3E6E85AD494498B17414CAC",
+  "23beff1690693b4bb29c3f2573d01e87343218b486149b35a3713ae49eabc886",
   null,
   1520408084,
-  "This is the genesis!!",
+  [genesisTx],
   0,
   0
 );
 
 let blockchain = [genesisBlock];
 
-let uTxOuts = [];
+let uTxOuts = processTxs(blockchain[0].data, [], 0);
 
 const getNewestBlock = () => blockchain[blockchain.length - 1];
 
@@ -52,7 +79,7 @@ const createNewBlock = () => {
     getPublicFromWallet(),
     getNewestBlock().index + 1
   );
-  const blockData = [coinbaseTx];
+  const blockData = [coinbaseTx].concat(getMempool());
   return createNewRawBlock(blockData);
 };
 
@@ -144,6 +171,8 @@ const getBlocksHash = block =>
     block.nonce
   );
 
+//console.log(getBlocksHash(genesisBlock));
+
 const isTimeStampValid = (newBlock, oldBlock) => {
   return (
     oldBlock.timestamp - 60 < newBlock.timestamp &&
@@ -233,6 +262,7 @@ const addBlockToChain = candidateBlock => {
     } else {
       blockchain.push(candidateBlock);
       uTxOuts = processdTxs;
+      updateMempool(uTxOuts);
       return true;
     }
     return true;
@@ -241,7 +271,24 @@ const addBlockToChain = candidateBlock => {
   }
 };
 
+////UTXO가 업데이트 되도록 하는 함수 deep copy!
+const getUTxOutList = () => _.cloneDeep(uTxOuts);
+
 const getAccountBalance = () => getBalance(getPublicFromWallet(), uTxOuts);
+
+///블록체인에서 트랜잭션을 가지고 와서 생성하고, 트랜잭션을 맴풀에 추가하는 부분
+
+const sendTx = (address, amount) => {
+  const tx = createTx(
+    address,
+    amount,
+    getPrivateFromWallet(),
+    getUTxOutList(),
+    getMempool()
+  );
+  addToMemPool(tx, getUTxOutList());
+  return tx;
+};
 
 module.exports = {
   getNewestBlock,
@@ -250,5 +297,6 @@ module.exports = {
   isBlockStructureValid,
   addBlockToChain,
   replaceChain,
-  getAccountBalance
+  getAccountBalance,
+  sendTx
 };
