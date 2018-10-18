@@ -80,7 +80,7 @@ const initSocketConnection = ws => {
   }, 1000);
   setInterval(() => {
     if (sockets.includes(ws)) {
-      sendMessage(ws);
+      sendMessage(ws, "");
     }
   }, 1000);
 };
